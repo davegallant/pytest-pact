@@ -22,24 +22,32 @@ def pytest_addoption(parser):
         type=str,
     )
     group.addoption(
-        "--pact-broker",
+        "--pact-host",
         action="store",
-        dest="broker_host",
-        help="URI of the pact broker",
+        dest="pact_host",
+        help="hostname of the pact broker",
         type=str,
     )
     group.addoption(
-        "--pact-broker-user",
+        "--pact-port",
         action="store",
-        dest="broker_user",
-        help="Pact broker username",
+        default=80,
+        dest="pact_port",
+        help="port of the pact broker",
         type=str,
     )
     group.addoption(
-        "--pact-broker-password",
+        "--pact-user",
         action="store",
-        dest="broker_password",
-        help="Pact broker password",
+        dest="pact_user",
+        help="username for the pact broker",
+        type=str,
+    )
+    group.addoption(
+        "--pact-password",
+        action="store",
+        dest="pact_password",
+        help="password for the pact broker",
         type=str,
     )
 
@@ -50,12 +58,13 @@ def pact_publisher(request, pytestconfig, pact_dir):
         version = pytestconfig.getoption("--publish-pact")
         if not request.session.testsfailed and version:
             for _, pact in PACTS.items():
-                push_to_broker(
-                    broker_host=pytestconfig.getoption("broker_host"),
-                    broker_user=pytestconfig.getoption("broker_user"),
-                    broker_password=pytestconfig.getoption("broker_password"),
+                publish_to_broker(
                     consumer=pact["consumer"],
                     pact_dir=pact_dir,
+                    pact_host=pytestconfig.getoption("pact_host"),
+                    pact_password=pytestconfig.getoption("pact_password"),
+                    pact_port=pytestconfig.getoption("pact_port"),
+                    pact_user=pytestconfig.getoption("pact_user"),
                     provider=pact["provider"],
                     version=version,
                 )
@@ -80,7 +89,7 @@ def pact(pytestconfig, pact_dir):
 
         new_pact = Consumer(consumer).has_pact_with(
             Provider(provider),
-            host_name=pytestconfig.getoption("broker_host"),
+            host_name=pytestconfig.getoption("pact_host"),
             pact_dir=pact_dir,
             port=8155,
             version="3.0.0",
@@ -100,18 +109,23 @@ def pact(pytestconfig, pact_dir):
     return _pact
 
 
-def push_to_broker(
-    broker_host, broker_user, broker_password, pact_dir, consumer, provider, version
+def publish_to_broker(
+    pact_host,
+    pact_port,
+    pact_user,
+    pact_password,
+    pact_dir,
+    consumer,
+    provider,
+    version,
 ):
     """Publish pacts to the pact broker."""
     pact_file = f"{consumer}-{provider}-pact.json"
-    pact_upload_url = (
-        f"{broker_host}/pacts/provider/{provider}/consumer/{consumer}/version/{version}"
-    )
+    pact_upload_url = f"http://{pact_host}:{pact_port}/pacts/provider/{provider}/consumer/{consumer}/version/{version}"
     with open(os.path.join(pact_dir, pact_file), "rb") as pact_file:
         pact_file_json = json.load(pact_file)
 
-    basic_auth = requests.auth.HTTPBasicAuth(broker_user, broker_password)
+    basic_auth = requests.auth.HTTPBasicAuth(pact_user, pact_password)
     logging.info("Uploading pact file to pact broker: %s", pact_upload_url)
 
     response = requests.put(pact_upload_url, auth=basic_auth, json=pact_file_json)
